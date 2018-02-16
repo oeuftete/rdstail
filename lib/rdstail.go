@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -14,8 +16,8 @@ import (
 )
 
 const (
-	papertrailBackoffMaxWait  = time.Minute
-	papertrailBackoffDeadline = time.Minute * 5
+	syslogBackoffMaxWait  = time.Minute
+	syslogBackoffDeadline = time.Minute * 5
 	// aws-sdk-go already offers retry functionality
 )
 
@@ -190,11 +192,18 @@ func Watch(r *rds.RDS, db string, rate time.Duration, callback func(string) erro
 	}
 }
 
-func FeedPapertrail(r *rds.RDS, db string, rate time.Duration, papertrailHost, app, hostname string, stop <-chan struct{}) error {
+func GetConnection(doPapertrail bool, syslogHost string) (net.Conn, error) {
+	if doPapertrail {
+		return tls.Dial("tcp", syslogHost, &tls.Config{})
+	}
+	return net.Dial("tcp", syslogHost)
+}
+
+func FeedSyslog(r *rds.RDS, doPapertrail bool, db string, rate time.Duration, syslogHost, app, hostname string, stop <-chan struct{}) error {
 	nameSegment := fmt.Sprintf(" %s %s: ", hostname, app)
 
-	// Establish TLS connection with papertrail
-	conn, err := tls.Dial("tcp", papertrailHost, &tls.Config{})
+	// Establish TCP connection to syslog address
+	conn, err := GetConnection(doPapertrail, syslogHost)
 	if err != nil {
 		return err
 	}
@@ -202,16 +211,20 @@ func FeedPapertrail(r *rds.RDS, db string, rate time.Duration, papertrailHost, a
 
 	// watch with callback writing to the connection
 	return Watch(r, db, rate, func(lines string) error {
-		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05")
+		timestamp := time.Now().UTC().Format("Jan 2 2006 15:04:05")
 		buf := bytes.Buffer{}
-		buf.WriteString(timestamp)
-		buf.WriteString(nameSegment)
-		buf.WriteString(lines)
-		return backoff.Try(papertrailBackoffMaxWait, papertrailBackoffDeadline, func() error {
+		for _, line := range strings.Split(strings.TrimSpace(lines), "\n") {
+			buf.WriteString("<190>") // local7.info
+			buf.WriteString(timestamp)
+			buf.WriteString(nameSegment)
+			buf.WriteString(line)
+			buf.WriteString("\n")
+		}
+		return backoff.Try(syslogBackoffMaxWait, syslogBackoffDeadline, func() error {
 			_, err := conn.Write(buf.Bytes())
 			if err != nil {
-				log.Warnf("Writing to Papertrail failed. Error: %v. This will be retried.",
-					err, papertrailBackoffMaxWait)
+				log.Warnf("Writing to Syslog failed. Error: %v. This will be retried.",
+					err, syslogBackoffMaxWait)
 			}
 			return err
 		})

@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/rds"
 	"github.com/urfave/cli"
 
-	"github.com/Instamojo/rdstail/lib"
+	"./lib"
 )
 
 func fie(e error) {
@@ -70,13 +70,14 @@ func watch(c *cli.Context) {
 	fie(err)
 }
 
-func papertrail(c *cli.Context) {
+func syslog(c *cli.Context) {
 	r := setupRDS(c)
+	doPapertrail := c.Bool("papertrail")
 	db := parseDB(c)
 	rate := parseRate(c)
-	papertrailHost := c.String("papertrail")
-	if papertrailHost == "" {
-		fie(errors.New("-papertrail required"))
+	syslogHost := c.String("syslog")
+	if syslogHost == "" {
+		fie(errors.New("-syslog required"))
 	}
 	appName := c.String("app")
 	hostname := c.String("hostname")
@@ -89,7 +90,7 @@ func papertrail(c *cli.Context) {
 	stop := make(chan struct{})
 	go signalListen(stop)
 
-	err := lib.FeedPapertrail(r, db, rate, papertrailHost, appName, hostname, stop)
+	err := lib.FeedSyslog(r, doPapertrail, db, rate, syslogHost, appName, hostname, stop)
 
 	fie(err)
 }
@@ -109,7 +110,7 @@ func main() {
 	app.Usage = `Reads AWS RDS logs
 
     AWS credentials are taken from an ~/.aws/credentials file or the env vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.`
-	app.Version = "2017.04"
+	app.Version = "2018.02"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "instance, i",
@@ -130,24 +131,28 @@ func main() {
 
 	app.Commands = []cli.Command{
 		{
-			Name:   "papertrail",
-			Usage:  "stream logs into papertrail",
-			Action: papertrail,
+			Name:   "syslog",
+			Usage:  "stream logs to syslog",
+			Action: syslog,
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:  "papertrail, p",
+					Name:  "syslog, s",
 					Value: "",
-					Usage: "papertrail host e.g. logs.papertrailapp.com:8888 [required]",
+					Usage: "syslog TCP address e.g. localhost:514 [required]",
+				},
+				cli.BoolFlag{
+					Name:  "papertrail, p",
+					Usage: "Use Papertrail TLS instead of plain TCP",
 				},
 				cli.StringFlag{
 					Name:  "app, a",
 					Value: "rdstail",
-					Usage: "app name to send to papertrail",
+					Usage: "app name to add to syslog message",
 				},
 				cli.StringFlag{
 					Name:  "hostname",
 					Value: "os.Hostname()",
-					Usage: "hostname of the client, sent to papertrail",
+					Usage: "hostname of the client, added to syslog message",
 				},
 				cli.StringFlag{
 					Name:  "rate, r",
