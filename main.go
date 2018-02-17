@@ -74,6 +74,7 @@ func syslog(c *cli.Context) {
 	r := setupRDS(c)
 	doPapertrail := c.Bool("papertrail")
 	noPreamble := c.Bool("no-preamble")
+	doUdp := c.Bool("udp")
 	db := parseDB(c)
 	rate := parseRate(c)
 	syslogHost := c.String("syslog")
@@ -91,7 +92,7 @@ func syslog(c *cli.Context) {
 	stop := make(chan struct{})
 	go signalListen(stop)
 
-	err := lib.FeedSyslog(r, doPapertrail, noPreamble, db, rate, syslogHost, appName, hostname, stop)
+	err := lib.FeedSyslog(r, doPapertrail, noPreamble, doUdp, db, rate, syslogHost, appName, hostname, stop)
 
 	fie(err)
 }
@@ -140,6 +141,10 @@ func main() {
 					Name:  "syslog, s",
 					Value: "",
 					Usage: "syslog TCP address e.g. localhost:514 [required]",
+				},
+				cli.BoolFlag{
+					Name:  "udp, u",
+					Usage: "Use UDP instead of TCP",
 				},
 				cli.BoolFlag{
 					Name:  "papertrail, p",

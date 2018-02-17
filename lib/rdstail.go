@@ -193,18 +193,22 @@ func Watch(r *rds.RDS, db string, rate time.Duration, callback func(string) erro
 	}
 }
 
-func GetConnection(doPapertrail bool, syslogHost string) (net.Conn, error) {
+func GetConnection(doPapertrail bool, doUdp bool, syslogHost string) (net.Conn, error) {
+	//  doPapertrail ignored if it's UDP
+	if doUdp {
+		return net.Dial("udp", syslogHost)
+	}
 	if doPapertrail {
 		return tls.Dial("tcp", syslogHost, &tls.Config{})
 	}
 	return net.Dial("tcp", syslogHost)
 }
 
-func FeedSyslog(r *rds.RDS, doPapertrail bool, noPreamble bool, db string, rate time.Duration, syslogHost, app, hostname string, stop <-chan struct{}) error {
+func FeedSyslog(r *rds.RDS, doPapertrail bool, noPreamble bool, doUdp bool, db string, rate time.Duration, syslogHost, app, hostname string, stop <-chan struct{}) error {
 	nameSegment := fmt.Sprintf(" %s %s: ", hostname, app)
 
 	// Establish TCP connection to syslog address
-	conn, err := GetConnection(doPapertrail, syslogHost)
+	conn, err := GetConnection(doPapertrail, doUdp, syslogHost)
 	if err != nil {
 		return err
 	}
@@ -225,14 +229,24 @@ func FeedSyslog(r *rds.RDS, doPapertrail bool, noPreamble bool, db string, rate 
 				buf.WriteString(line)
 			}
 			buf.WriteString("\n")
-		}
-		return backoff.Try(syslogBackoffMaxWait, syslogBackoffDeadline, func() error {
-			_, err := conn.Write(buf.Bytes())
-			if err != nil {
-				log.Warnf("Writing to Syslog failed. Error: %v. This will be retried.",
-					err, syslogBackoffMaxWait)
+			if doUdp {
+				_, err := conn.Write(buf.Bytes())
+				if err != nil {
+					return err
+				}
+				buf.Reset()
 			}
-			return err
-		})
+		}
+		if !doUdp {
+			return backoff.Try(syslogBackoffMaxWait, syslogBackoffDeadline, func() error {
+				_, err := conn.Write(buf.Bytes())
+				if err != nil {
+					log.Warnf("Writing to Syslog failed. Error: %v. This will be retried.",
+						err, syslogBackoffMaxWait)
+				}
+				return err
+			})
+		}
+		return nil
 	}, stop)
 }
