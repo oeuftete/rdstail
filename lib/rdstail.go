@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 
@@ -199,7 +200,7 @@ func GetConnection(doPapertrail bool, syslogHost string) (net.Conn, error) {
 	return net.Dial("tcp", syslogHost)
 }
 
-func FeedSyslog(r *rds.RDS, doPapertrail bool, db string, rate time.Duration, syslogHost, app, hostname string, stop <-chan struct{}) error {
+func FeedSyslog(r *rds.RDS, doPapertrail bool, noPreamble bool, db string, rate time.Duration, syslogHost, app, hostname string, stop <-chan struct{}) error {
 	nameSegment := fmt.Sprintf(" %s %s: ", hostname, app)
 
 	// Establish TCP connection to syslog address
@@ -217,7 +218,12 @@ func FeedSyslog(r *rds.RDS, doPapertrail bool, db string, rate time.Duration, sy
 			buf.WriteString("<190>") // local7.info
 			buf.WriteString(timestamp)
 			buf.WriteString(nameSegment)
-			buf.WriteString(line)
+			if noPreamble {
+				re := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC::@:\[\d+\]:`)
+				buf.WriteString(re.ReplaceAllLiteralString(line, ""))
+			} else {
+				buf.WriteString(line)
+			}
 			buf.WriteString("\n")
 		}
 		return backoff.Try(syslogBackoffMaxWait, syslogBackoffDeadline, func() error {

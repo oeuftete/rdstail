@@ -73,6 +73,7 @@ func watch(c *cli.Context) {
 func syslog(c *cli.Context) {
 	r := setupRDS(c)
 	doPapertrail := c.Bool("papertrail")
+	noPreamble := c.Bool("no-preamble")
 	db := parseDB(c)
 	rate := parseRate(c)
 	syslogHost := c.String("syslog")
@@ -90,7 +91,7 @@ func syslog(c *cli.Context) {
 	stop := make(chan struct{})
 	go signalListen(stop)
 
-	err := lib.FeedSyslog(r, doPapertrail, db, rate, syslogHost, appName, hostname, stop)
+	err := lib.FeedSyslog(r, doPapertrail, noPreamble, db, rate, syslogHost, appName, hostname, stop)
 
 	fie(err)
 }
@@ -143,6 +144,10 @@ func main() {
 				cli.BoolFlag{
 					Name:  "papertrail, p",
 					Usage: "Use Papertrail TLS instead of plain TCP",
+				},
+				cli.BoolFlag{
+					Name:  "no-preamble, P",
+					Usage: "Strip off RDS-default log preamble",
 				},
 				cli.StringFlag{
 					Name:  "app, a",
